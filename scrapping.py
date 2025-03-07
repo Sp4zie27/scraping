@@ -54,6 +54,7 @@ async def fetch_reddit():
 
                 hora_publicacao = datetime.fromtimestamp(post.created_utc).strftime('%Y-%m-%d %H:%M:%S')
                 interacoes = post.score + post.num_comments
+                conteudo = post.selftext if post.is_self else ""
 
                 posts.append([
                     NOSSO_ID,
@@ -65,7 +66,8 @@ async def fetch_reddit():
                     hora_envio_csv,
                     hora_publicacao,
                     linguagem,
-                    interacoes
+                    interacoes,
+                    conteudo
                 ])
 
             if posts:
@@ -79,12 +81,15 @@ async def fetch_reddit():
                     "hora_envio",
                     "hora_publicacao",
                     "linguagem",
-                    "interacoes"
+                    "interacoes",
+                    "conteudo"
                 ])
+
+                # Garantir que a coluna 'conteudo' esteja sempre como string
+                df_new['conteudo'] = df_new['conteudo'].fillna('').astype(str)
 
                 if os.path.exists(CSV_PATH):
                     df_old = pd.read_csv(CSV_PATH)
-                    # Remove dados duplicados com base no 'id_publicacao'
                     df_combined = pd.concat([df_old, df_new], ignore_index=True)
                     df_combined.drop_duplicates(subset=["id_publicacao"], keep='last', inplace=True)
 
@@ -94,38 +99,36 @@ async def fetch_reddit():
                 df_combined.to_csv(CSV_PATH, index=False, encoding="utf-8")
                 print(f"{len(posts)} novas publicações salvas em {CSV_PATH}!")
 
-                # Atualiza o último ID visto
                 last_seen_id = posts[0][1]
 
-                # Insere os novos dados no banco de dados
                 insert_data_to_sql()
 
-            # Espera 60 segundos antes de buscar novas publicações
             await asyncio.sleep(60)
 
 # Função para inserir dados do CSV na tabela do SQL Server
 def insert_data_to_sql():
-    # Conectar ao banco de dados
     conn = pyodbc.connect(connection_string)
     cursor = conn.cursor()
 
-    # Ler o CSV atualizado
     df = pd.read_csv(CSV_PATH)
 
-    # Inserir dados na tabela do banco de dados sem duplicações
+    # Garantir que a coluna 'conteudo' esteja sempre como string
+    df['conteudo'] = df['conteudo'].fillna('').astype(str)
+
     for index, row in df.iterrows():
         cursor.execute(f"""
             IF NOT EXISTS (SELECT 1 FROM {table_name} WHERE [id_publicacao] = ?)
             BEGIN
                 INSERT INTO {table_name} (
                     [id], [id_publicacao], [titulo], [upvotes], [comentarios],
-                    [link], [hora_envio], [hora_publicacao], [linguagem], [interacoes]
-                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    [link], [hora_envio], [hora_publicacao], [linguagem], [interacoes], [conteudo]
+                ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
             END
         """,
                        row['id_publicacao'], row['id'], row['id_publicacao'], row['titulo'], row['upvotes'],
                        row['comentarios'],
-                       row['link'], row['hora_envio'], row['hora_publicacao'], row['linguagem'], row['interacoes']
+                       row['link'], row['hora_envio'], row['hora_publicacao'], row['linguagem'], row['interacoes'],
+                       row['conteudo']
                        )
 
     conn.commit()
@@ -133,5 +136,4 @@ def insert_data_to_sql():
     conn.close()
     print(f'Dados inseridos na tabela {table_name} com sucesso!')
 
-# Executar a função assíncrona diretamente
 asyncio.run(fetch_reddit())
