@@ -103,7 +103,7 @@ async def fetch_reddit():
 
                 insert_data_to_sql()
 
-            await asyncio.sleep(60)
+            await asyncio.sleep(10)
 
 # Função para inserir dados do CSV na tabela do SQL Server
 def insert_data_to_sql():
